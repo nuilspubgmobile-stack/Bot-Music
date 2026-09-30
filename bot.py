@@ -9,41 +9,73 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Настройки: только аудио, конвертация в MP3, тихий режим
-YTDL_OPTS = {
-    "format": "bestaudio/best",
-    "postprocessors": [{
-        "key": "FFmpegExtractAudio",
-        "preferredcodec": "mp3",
-        "preferredquality": "192",
-    }],
-    "quiet": True,
-    "no_warnings": True,
-    "socket_timeout": 20,          # не ждать вечно, если YouTube тормозит
-    "default_search": "ytsearch",  # поиск по названию
-}
+# Общие настройки для всех источников
+def get_opts(source_search: str):
+    return {
+        "format": "bestaudio/best",
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }],
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 20,
+        "default_search": source_search,  # ytsearch или scsearch
+    }
 
-async def download_audio(query: str) -> str | None:
-    """Скачивает и конвертирует трек в MP3. Возвращает путь к файлу."""
-    url = f"ytsearch1:{query}"  # ищем 1 результат
+async def download_audio(query: str, timeout_seconds: int = 45) -> str | None:
+    """Сначала SoundCloud, потом YouTube как запасной."""
+    loop = asyncio.get_event_loop()
+
+    # Источник 1: SoundCloud
     try:
-        with YoutubeDL(YTDL_OPTS) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            mp3_path = os.path.splitext(filename)[0] + ".mp3"
-            if os.path.exists(mp3_path):
-                return mp3_path
-            return None
+        path = await asyncio.wait_for(
+            loop.run_in_executor(None, _download_sync, query, "scsearch1"),
+            timeout=timeout_seconds
+        )
+        if path:
+            print(f"Найдено на SoundCloud: {query}")
+            return path
+    except asyncio.TimeoutError:
+        print(f"SoundCloud таймаут для {query}")
     except Exception as e:
-        print(f"Ошибка скачивания: {e}")
+        print(f"SoundCloud ошибка для {query}: {e}")
+
+    # Источник 2: YouTube (запасной)
+    try:
+        path = await asyncio.wait_for(
+            loop.run_in_executor(None, _download_sync, query, "ytsearch1"),
+            timeout=timeout_seconds
+        )
+        if path:
+            print(f"Найдено на YouTube: {query}")
+            return path
+    except asyncio.TimeoutError:
+        print(f"YouTube таймаут для {query}")
+    except Exception as e:
+        print(f"YouTube ошибка для {query}: {e}")
+
+    return None
+
+def _download_sync(query: str, search_prefix: str) -> str | None:
+    opts = get_opts(search_prefix)
+    url = f"{search_prefix}:{query}"
+    with YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = ydl.prepare_filename(info)
+        mp3_path = os.path.splitext(filename)[0] + ".mp3"
+        if os.path.exists(mp3_path):
+            return mp3_path
         return None
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.answer(
         "🎵 <b>Музыкальный бот</b>\n\n"
-        "Напиши название трека (например: Linkin Park Numb).\n"
-        "Я пришлю его как MP3-файл — можно слушать в Telegram.",
+        "Напиши название трека — я найду его и пришлю MP3.\n"
+        "Источники: SoundCloud → YouTube (запасной).\n"
+        "Если за 45 сек не найду — скажу об этом честно.",
         parse_mode=ParseMode.HTML
     )
 
@@ -53,29 +85,29 @@ async def handle_search(message: types.Message):
     if not query:
         return
 
-    status_msg = await message.answer("⏳ Ищу и скачиваю трек…")
-
-    # Скачивание в отдельном потоке, чтобы бот не «замирал» для других пользователей
-    path = await asyncio.to_thread(download_audio, query)
+    status_msg = await message.answer("⏳ Ищу трек (SoundCloud → YouTube)…")
+    path = await download_audio(query, timeout_seconds=45)
 
     if path and os.path.exists(path):
         await message.answer_chat_action(action="upload_audio")
         try:
             await message.reply_document(
                 document=types.FSInputFile(path),
-                caption=f"🎵 Трек: {query}"
+                caption=f"🎵 {query}"
             )
-        except Exception as send_err:
-            print(f"Ошибка отправки: {send_err}")
+        except Exception:
             await status_msg.edit_text("❌ Не удалось отправить файл (возможно, слишком большой).")
         finally:
-            # Удаляем файл, чтобы не забивать диск
             try:
                 os.remove(path)
             except:
                 pass
     else:
-        await status_msg.edit_text("❌ Не получилось скачать трек. Попробуй другое название или короче запрос.")
+        await status_msg.edit_text(
+            "❌ Не удалось найти трек за 45 сек.\n"
+            "Возможно, трек слишком редкий или оба источника тормозят.\n"
+            "Попробуй точнее написать название."
+        )
 
 async def main():
     await dp.start_polling(bot)

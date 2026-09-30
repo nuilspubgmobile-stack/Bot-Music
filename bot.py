@@ -5,13 +5,11 @@ from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from yt_dlp import YoutubeDL
 
-# Токен берём из переменных окружения (панель BotHost)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Настройки для скачивания и конвертации в MP3
+# Настройки: только аудио, конвертация в MP3, тихий режим
 YTDL_OPTS = {
     "format": "bestaudio/best",
     "postprocessors": [{
@@ -21,10 +19,13 @@ YTDL_OPTS = {
     }],
     "quiet": True,
     "no_warnings": True,
+    "socket_timeout": 20,          # не ждать вечно, если YouTube тормозит
+    "default_search": "ytsearch",  # поиск по названию
 }
 
-async def download_audio(url: str) -> str | None:
-    """Скачивает трек и возвращает путь к MP3-файлу."""
+async def download_audio(query: str) -> str | None:
+    """Скачивает и конвертирует трек в MP3. Возвращает путь к файлу."""
+    url = f"ytsearch1:{query}"  # ищем 1 результат
     try:
         with YoutubeDL(YTDL_OPTS) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -41,7 +42,8 @@ async def download_audio(url: str) -> str | None:
 async def cmd_start(message: types.Message):
     await message.answer(
         "🎵 <b>Музыкальный бот</b>\n\n"
-        "Напиши название трека (например: Linkin Park Numb) — я скачаю и пришлю аудио.",
+        "Напиши название трека (например: Linkin Park Numb).\n"
+        "Я пришлю его как MP3-файл — можно слушать в Telegram.",
         parse_mode=ParseMode.HTML
     )
 
@@ -53,21 +55,27 @@ async def handle_search(message: types.Message):
 
     status_msg = await message.answer("⏳ Ищу и скачиваю трек…")
 
-    search_url = f"ytsearch1:{query}"
-    path = await asyncio.to_thread(download_audio, search_url)
+    # Скачивание в отдельном потоке, чтобы бот не «замирал» для других пользователей
+    path = await asyncio.to_thread(download_audio, query)
 
     if path and os.path.exists(path):
         await message.answer_chat_action(action="upload_audio")
-        await message.reply_document(
-            document=types.FSInputFile(path),
-            caption=f"🎵 Вот твой трек: {query}"
-        )
         try:
-            os.remove(path)
-        except:
-            pass
+            await message.reply_document(
+                document=types.FSInputFile(path),
+                caption=f"🎵 Трек: {query}"
+            )
+        except Exception as send_err:
+            print(f"Ошибка отправки: {send_err}")
+            await status_msg.edit_text("❌ Не удалось отправить файл (возможно, слишком большой).")
+        finally:
+            # Удаляем файл, чтобы не забивать диск
+            try:
+                os.remove(path)
+            except:
+                pass
     else:
-        await status_msg.edit_text("❌ Не удалось найти или скачать трек. Попробуй другой запрос.")
+        await status_msg.edit_text("❌ Не получилось скачать трек. Попробуй другое название или короче запрос.")
 
 async def main():
     await dp.start_polling(bot)

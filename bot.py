@@ -11,13 +11,10 @@ dp = Dispatcher()
 
 def get_opts():
     return {
-        # Берём лучшее аудио без конвертации
         "format": "bestaudio/best",
-        # НЕТ postprocessors — не нужен ffmpeg
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 20,
-        # Притворяемся обычным браузером
         "http_headers": {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         },
@@ -71,8 +68,7 @@ async def cmd_start(message: types.Message):
     await message.answer(
         "🎵 <b>Музыкальный бот</b>\n\n"
         "Напиши название трека — я найду и пришлю аудио.\n"
-        "Источники: SoundCloud → YouTube (запасной).\n"
-        "Аудио приходит в исходном формате (m4a/webm) — слушается прямо в Telegram.",
+        "Источники: SoundCloud → YouTube (запасной).",
         parse_mode=ParseMode.HTML
     )
 
@@ -93,7 +89,7 @@ async def handle_search(message: types.Message):
                 caption=f"🎵 {query}"
             )
         except Exception:
-            await status_msg.edit_text("❌ Не удалось отправить файл (возможно, слишком большой).")
+            await status_msg.edit_text("❌ Не удалось отправить файл.")
         finally:
             try:
                 os.remove(path)
@@ -102,7 +98,7 @@ async def handle_search(message: types.Message):
     else:
         await status_msg.edit_text(
             "❌ Не удалось найти трек.\n"
-            "Попробуй точнее написать название или другой трек."
+            "Попробуй точнее написать название."
         )
 
 async def main():

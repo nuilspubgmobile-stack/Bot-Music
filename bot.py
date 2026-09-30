@@ -9,12 +9,17 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# Папка для скачанных файлов (создастся автоматически)
+DOWNLOAD_DIR = "downloads"
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
 def get_opts():
     return {
         "format": "bestaudio/best",
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 20,
+        "outtmpl": os.path.join(DOWNLOAD_DIR, "%(id)s.%(ext)s"),  # Сохраняем в downloads/
         "http_headers": {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         },
@@ -25,6 +30,7 @@ def _download_sync(query: str) -> str | None:
     opts = get_opts()
     with YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
+        # yt-dlp сам подставит имя по outtmpl, но на всякий случай проверим
         filename = ydl.prepare_filename(info)
         if os.path.exists(filename):
             return filename
@@ -38,20 +44,21 @@ async def download_audio(query: str, timeout_seconds: int = 45) -> str | None:
             timeout=timeout_seconds
         )
         if path:
-            print(f"Найдено на SoundCloud: {query}")
+            print(f"[OK] Файл сохранён: {path}")
             return path
     except asyncio.TimeoutError:
-        print(f"SoundCloud таймаут для {query}")
+        print(f"[ERROR] Таймаут для {query}")
     except Exception as e:
-        print(f"SoundCloud ошибка для {query}: {e}")
+        print(f"[ERROR] Ошибка скачивания для {query}: {e}")
     return None
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.answer(
-        "🎵 <b>Музыкальный бот</b>\n\n"
-        "Напиши название трека — я найду и пришлю аудио.\n"
-        "Источник: SoundCloud.",
+        "🎵 <b>Музыкальный бот (режим отладки)</b>\n\n"
+        "Напиши название трека — я найду его на SoundCloud и сохраню в папку.\n"
+        "<b>Файл не удаляется</b> — ты сможешь сам его проверить.\n"
+        "В ответе будет путь к файлу.",
         parse_mode=ParseMode.HTML
     )
 
@@ -64,26 +71,24 @@ async def handle_search(message: types.Message):
     status_msg = await message.answer("⏳ Ищу трек на SoundCloud…")
     path = await download_audio(query, timeout_seconds=45)
 
-    if path and os.path.exists(path):
-        await message.answer_chat_action(action="upload_audio")
-        try:
-            await message.reply_document(
-                document=types.FSInputFile(path),
-                caption=f"🎵 {query}"
-            )
-        except Exception:
-            await status_msg.edit_text("❌ Не удалось отправить файл.")
-        finally:
-            try:
-                os.remove(path)
-            except:
-                pass
-    else:
+    if path is None:
         await status_msg.edit_text(
             "❌ Не удалось найти трек на SoundCloud.\n"
-            "Возможно, трека там нет — SoundCloud работает как соцсеть, где артисты выкладывают музыку сами.\n"
             "Попробуй другое название или другого исполнителя."
         )
+        return
+
+    # Если файл есть — показываем путь, а не отправляем в Telegram
+    file_size = os.path.getsize(path)
+    human_size = f"{file_size / 1024:.1f} КБ" if file_size < 1_048_576 else f"{file_size / 1_048_576:.1f} МБ"
+
+    await status_msg.edit_text(
+        f"✅ Трек найден и сохранён!\n\n"
+        f"📁 Путь: `{path}`\n"
+        f"💾 Размер: {human_size}\n\n"
+        f"Теперь ты можешь сам проверить файл или отправить его вручную.",
+        parse_mode="Markdown"
+    )
 
 async def main():
     await dp.start_polling(bot)

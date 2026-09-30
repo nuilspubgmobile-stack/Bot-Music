@@ -9,28 +9,28 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-def get_opts(search_prefix: str):
+def get_opts():
     return {
+        # Берём лучшее аудио без конвертации
         "format": "bestaudio/best",
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "192",
-        }],
+        # НЕТ postprocessors — не нужен ffmpeg
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 20,
+        # Притворяемся обычным браузером
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        },
     }
 
 def _download_sync(query: str, search_prefix: str) -> str | None:
     url = f"{search_prefix}:{query}"
-    opts = get_opts(search_prefix)
+    opts = get_opts()
     with YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
         filename = ydl.prepare_filename(info)
-        mp3_path = os.path.splitext(filename)[0] + ".mp3"
-        if os.path.exists(mp3_path):
-            return mp3_path
+        if os.path.exists(filename):
+            return filename
         return None
 
 async def download_audio(query: str, timeout_seconds: int = 45) -> str | None:
@@ -70,9 +70,9 @@ async def download_audio(query: str, timeout_seconds: int = 45) -> str | None:
 async def cmd_start(message: types.Message):
     await message.answer(
         "🎵 <b>Музыкальный бот</b>\n\n"
-        "Напиши название трека — я найду его и пришлю MP3.\n"
+        "Напиши название трека — я найду и пришлю аудио.\n"
         "Источники: SoundCloud → YouTube (запасной).\n"
-        "Если за 45 сек не найду — скажу об этом честно.",
+        "Аудио приходит в исходном формате (m4a/webm) — слушается прямо в Telegram.",
         parse_mode=ParseMode.HTML
     )
 
@@ -101,8 +101,8 @@ async def handle_search(message: types.Message):
                 pass
     else:
         await status_msg.edit_text(
-            "❌ Не удалось найти трек за 45 сек.\n"
-            "Попробуй точнее написать название."
+            "❌ Не удалось найти трек.\n"
+            "Попробуй точнее написать название или другой трек."
         )
 
 async def main():

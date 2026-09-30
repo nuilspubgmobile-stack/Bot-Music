@@ -5,11 +5,13 @@ from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from yt_dlp import YoutubeDL
 
+# Токен берём из переменных окружения (панель BotHost)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# Настройки для скачивания и конвертации в MP3
 YTDL_OPTS = {
     "format": "bestaudio/best",
     "postprocessors": [{
@@ -22,6 +24,7 @@ YTDL_OPTS = {
 }
 
 async def download_audio(url: str) -> str | None:
+    """Скачивает трек и возвращает путь к MP3-файлу."""
     try:
         with YoutubeDL(YTDL_OPTS) as ydl:
             info = ydl.extract_info(url, download=True)

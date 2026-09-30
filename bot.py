@@ -9,8 +9,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Общие настройки для всех источников
-def get_opts(source_search: str):
+def get_opts(search_prefix: str):
     return {
         "format": "bestaudio/best",
         "postprocessors": [{
@@ -21,11 +20,20 @@ def get_opts(source_search: str):
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 20,
-        "default_search": source_search,  # ytsearch или scsearch
     }
 
+def _download_sync(query: str, search_prefix: str) -> str | None:
+    url = f"{search_prefix}:{query}"
+    opts = get_opts(search_prefix)
+    with YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = ydl.prepare_filename(info)
+        mp3_path = os.path.splitext(filename)[0] + ".mp3"
+        if os.path.exists(mp3_path):
+            return mp3_path
+        return None
+
 async def download_audio(query: str, timeout_seconds: int = 45) -> str | None:
-    """Сначала SoundCloud, потом YouTube как запасной."""
     loop = asyncio.get_event_loop()
 
     # Источник 1: SoundCloud
@@ -42,7 +50,7 @@ async def download_audio(query: str, timeout_seconds: int = 45) -> str | None:
     except Exception as e:
         print(f"SoundCloud ошибка для {query}: {e}")
 
-    # Источник 2: YouTube (запасной)
+    # Источник 2: YouTube
     try:
         path = await asyncio.wait_for(
             loop.run_in_executor(None, _download_sync, query, "ytsearch1"),
@@ -57,17 +65,6 @@ async def download_audio(query: str, timeout_seconds: int = 45) -> str | None:
         print(f"YouTube ошибка для {query}: {e}")
 
     return None
-
-def _download_sync(query: str, search_prefix: str) -> str | None:
-    opts = get_opts(search_prefix)
-    url = f"{search_prefix}:{query}"
-    with YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        filename = ydl.prepare_filename(info)
-        mp3_path = os.path.splitext(filename)[0] + ".mp3"
-        if os.path.exists(mp3_path):
-            return mp3_path
-        return None
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -105,7 +102,6 @@ async def handle_search(message: types.Message):
     else:
         await status_msg.edit_text(
             "❌ Не удалось найти трек за 45 сек.\n"
-            "Возможно, трек слишком редкий или оба источника тормозят.\n"
             "Попробуй точнее написать название."
         )
 

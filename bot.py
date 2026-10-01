@@ -65,21 +65,58 @@ def convert_to_mp3(input_path: str, output_path: str) -> bool:
         print(f"[EXCEPTION] Ошибка конвертации: {e}")
         return False
 
-def _download_sync(query: str) -> str | None:
+def download_track_sync(query: str) -> str | None:
     url = f"scsearch1:{query}"
-    # Генерируем уникальное имя файла на основе запроса (упрощённо)
     safe_name = "".join(c if c.isalnum() or c in "_-" else "_" for c in query)[:50]
-    output_path = os.path.join(DOWNLOAD_DIR, f"{safe_name}.temp")
-    
-    opts = get_ydl_opts(output_path)
+    temp_path = os.path.join(DOWNLOAD_DIR, f"{safe_name}.temp")
+    mp3_path = os.path.join(DOWNLOAD_DIR, f"{safe_name}.mp3")
+
+    opts = get_ydl_opts(temp_path)
     
     with YoutubeDL(opts) as ydl:
         try:
             info = ydl.extract_info(url, download=True)
-            if not info or "entries" in info and not info["entries"]:
+            if not info:
                 print("[SEARCH EMPTY] По запросу ничего не найдено.")
                 return None
             
-            # Если скачался файл — возвращаем путь
-            if os.path.
+            entries = info.get("entries")
+            if entries:
+                # Если это плейлист, берём первый трек
+                first = next((e for e in entries if e.get("extractor") != "playlist"), None)
+                if not first:
+                    first = entries[0]
+                info = first
+
+            # Проверяем, что файл реально появился
+            if not os.path.exists(temp_path):
+                print("[ERROR] Файл не появился после скачивания.")
+                return None
+
+            # Конвертируем в MP3
+            if not convert_to_mp3(temp_path, mp3_path):
+                print("[ERROR] Не удалось сконвертировать в MP3.")
+                return None
+
+            # Удаляем временный файл
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+
+            return mp3_path
+
+        except Exception as e:
+            print(f"[YDLOPEN ERROR] {e}")
+            return None
+
+@dp.message(Command("play"))
+async def cmd_play(message: types.Message):
+    query = message.text.split(maxsplit=1)
+    if len(query) < 2:
+        await message.answer("Отправьте: /play название трека (например, /play Friendly Thug 52 NGG - COW)")
+        return
+
+    track_name = query[1]
+    await message.
 

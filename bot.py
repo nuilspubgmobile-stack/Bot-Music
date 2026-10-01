@@ -171,7 +171,7 @@ async def handle_search(message: types.Message):
             pass
         return
 
-    await message.answer_chat_action(action="upload_audio")
+       await bot.send_chat_action(chat_id=message.chat.id, action="upload_audio")
     try:
         await message.reply_document(
             document=types.FSInputFile(path),
